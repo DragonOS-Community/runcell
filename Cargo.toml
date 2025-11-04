@@ -27,6 +27,8 @@ serde_json = "1.0.39"
 toml = "0.5.8"
 regex = "1.10.5"
 
+tempfile = "3.19.1"
+
 # Container
 oci-spec = { version = "0.8.1", features = ["runtime"] }
 caps = "0.5.0"

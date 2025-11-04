@@ -1,4 +1,5 @@
 pub mod capabilities;
+pub mod console;
 pub mod container;
 pub mod pipe;
 #[cfg(feature = "seccomp")]
