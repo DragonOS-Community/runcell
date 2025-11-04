@@ -1,5 +1,8 @@
 pub mod capabilities;
 pub mod container;
-pub mod specconv;
-pub mod sync;
+pub mod pipe;
+#[cfg(feature = "seccomp")]
+pub mod seccomp;
+pub mod selinux;
+pub mod specconf;
 pub mod validator;

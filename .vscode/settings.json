@@ -1,0 +1,4 @@
+{
+    // 这里启用 seccomp 功能以支持相关代码分析
+    "rust-analyzer.cargo.features": ["seccomp"],
+}

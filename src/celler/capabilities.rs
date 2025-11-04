@@ -1,4 +1,4 @@
-use super::sync::write_count;
+use super::pipe::sync::write_count;
 use crate::log_child;
 use anyhow::{Result, anyhow};
 use caps::{self, CapSet, Capability, CapsHashSet, runtime};

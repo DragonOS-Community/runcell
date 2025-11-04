@@ -16,6 +16,11 @@ anyhow = "1"
 # Async runtime
 tokio = { version = "1.46.1", features = ["full"] }
 
+# Async Helpers
+futures = "0.3.30"
+async-trait = "0.1.50"
+async-recursion = "0.3.2"
+
 # Configuration
 serde = { version = "1.0.129", features = ["derive"] }
 serde_json = "1.0.39"
@@ -25,3 +30,9 @@ regex = "1.10.5"
 # Container
 oci-spec = { version = "0.8.1", features = ["runtime"] }
 caps = "0.5.0"
+
+# Secure computing 
+libseccomp = { version = "0.3.0", optional = true }
+
+[features]
+seccomp = ["libseccomp"]

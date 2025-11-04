@@ -1,3 +1,3 @@
-use crate::celler::specconv::CreateOpts;
+use crate::celler::specconf::CreateOpts;
 
 pub type Config = CreateOpts;
