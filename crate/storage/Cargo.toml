@@ -1,0 +1,41 @@
+[package]
+name = "storage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Error handling
+anyhow.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Async
+async-trait.workspace = true
+tokio.workspace = true
+
+# Logging
+slog.workspace = true
+
+# Lazy static
+lazy_static = "1.4"
+
+# System utilities
+nix.workspace = true
+libc.workspace = true
+
+# OCI spec
+oci-spec.workspace = true
+
+# Path utilities
+safe-path = "0.1"
+
+# Internal dependencies
+celler = { path = "../celler" }
+protocols = { path = "../libs/protocols" }
+
+[dev-dependencies]
+tempfile = "3"
+slog-term = "2"

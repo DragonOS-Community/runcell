@@ -18,6 +18,7 @@ protobuf.workspace = true
 scopeguard.workspace = true
 capctl.workspace = true
 scan_fmt.workspace = true
+cfg-if.workspace = true
 
 # Async runtime
 tokio.workspace = true
@@ -63,3 +64,4 @@ serial_test.workspace = true
 [features]
 seccomp = ["libseccomp"]
 standard-oci-runtime = []
+mock-cgroup = []

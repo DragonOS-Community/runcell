@@ -8,16 +8,26 @@ name = "runcell"
 path = "src/main.rs"
 
 [dependencies]
-celler = { path = "../celler" }
+celler = { path = "../celler", features = ["mock-cgroup"] }
+storage = { path = "../storage" }
 
 anyhow.workspace = true
 tokio.workspace = true
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# OCI spec
+oci-spec.workspace = true
 
 # Log
 slog.workspace = true
 slog-scope.workspace = true
 slog-term.workspace = true
+slog-async = "2"
 
 [features]
+default = ["mock-cgroup"]
 seccomp = ["celler/seccomp"]
 standard-oci-runtime = ["celler/standard-oci-runtime"]
+mock-cgroup = ["celler/mock-cgroup"]

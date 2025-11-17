@@ -1,5 +1,5 @@
 [workspace]
-members = ["crate/celler", "crate/cli", "crate/libs/*"]
+members = ["crate/celler", "crate/cli", "crate/libs/*", "crate/storage"]
 resolver = "3"
 
 [workspace.package]
@@ -47,4 +47,4 @@ slog-scope = "4.1.2"
 slog-term = "2.9.0"
 
 serial_test = "0.10.0"
-
+cfg-if = "1.0.0"
