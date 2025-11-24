@@ -175,5 +175,5 @@ sudo ./target/debug/runcell -v container run --id test --image /path/to/rootfs
 
 如果你要使用seccomp的话，确保本机有seccomp
 
-sudo apt update
+sudo apt update &&
 sudo apt install libseccomp-dev
