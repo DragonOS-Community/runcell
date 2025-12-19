@@ -15,7 +15,10 @@ use celler::{
     specconf::CreateOpts,
 };
 use nix::{
-    sys::signal::{self, Signal},
+    sys::{
+        signal::{self, Signal},
+        wait::{self, WaitStatus},
+    },
     unistd::Pid,
 };
 use oci_spec::runtime::Spec;
@@ -38,23 +41,18 @@ pub async fn handle_container_command(cmd: ContainerCommands, logger: &Logger) -
         ContainerCommands::Run {
             id,
             image,
-            command,
-            args,
             tty,
             interactive,
             detach,
+            command,
         } => {
-            run_container(
-                &id,
-                &image,
-                &command,
-                &args,
-                tty,
-                interactive,
-                detach,
-                logger,
-            )
-            .await?;
+            // 解析命令和参数
+            let (cmd_str, args) = if command.is_empty() {
+                ("/bin/sh".to_string(), Vec::new())
+            } else {
+                (command[0].clone(), command[1..].to_vec())
+            };
+            run_container(&id, &image, &cmd_str, &args, tty, interactive, detach, logger).await?;
         }
         ContainerCommands::Start { id } => {
             start_container(&id, logger).await?;
@@ -67,12 +65,17 @@ pub async fn handle_container_command(cmd: ContainerCommands, logger: &Logger) -
         }
         ContainerCommands::Exec {
             id,
-            command,
-            args,
             tty,
             interactive,
+            command,
         } => {
-            exec_in_container(&id, &command, &args, tty, interactive, logger).await?;
+            // 解析命令和参数
+            let (cmd_str, args) = if command.is_empty() {
+                ("/bin/sh".to_string(), Vec::new())
+            } else {
+                (command[0].clone(), command[1..].to_vec())
+            };
+            exec_in_container(&id, &cmd_str, &args, tty, interactive, logger).await?;
         }
     }
 
@@ -197,12 +200,57 @@ async fn run_container(
 
     slog::info!(logger, "容器启动成功！"; "id" => id);
 
+    let pid = container.init_process_pid;
+
     if detach {
-        slog::info!(logger, "容器正在后台运行"; "id" => id);
+        slog::info!(logger, "容器正在后台运行"; "id" => id, "pid" => pid);
+    } else if interactive || tty {
+        // 交互模式：使用 nsenter 进入容器
+        slog::info!(logger, "进入交互模式..."; "id" => id, "pid" => pid);
+
+        let mut nsenter_args = vec![
+            format!("--target={}", pid),
+            "--mount".to_string(),
+            "--uts".to_string(),
+            "--ipc".to_string(),
+            "--net".to_string(),
+            "--pid".to_string(),
+        ];
+
+        // 添加要执行的命令
+        nsenter_args.push("--".to_string());
+        nsenter_args.push(command.to_string());
+        nsenter_args.extend(args.iter().cloned());
+
+        let status = std::process::Command::new("nsenter")
+            .args(&nsenter_args)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+            .context("执行 nsenter 失败")?;
+
+        if !status.success() {
+            slog::warn!(logger, "命令退出"; "code" => status.code());
+        }
     } else {
-        slog::info!(logger, "容器正在运行..."; "id" => id);
-        // TODO: 如果是交互模式，这里应该等待容器退出
-        // 目前简单返回，后续可以添加等待逻辑
+        // 非交互模式：等待进程退出
+        slog::info!(logger, "等待容器进程退出..."; "id" => id, "pid" => pid);
+
+        match wait::waitpid(Pid::from_raw(pid), None) {
+            Ok(WaitStatus::Exited(_, code)) => {
+                slog::info!(logger, "容器进程退出"; "code" => code);
+            }
+            Ok(WaitStatus::Signaled(_, sig, _)) => {
+                slog::info!(logger, "容器进程被信号终止"; "signal" => format!("{:?}", sig));
+            }
+            Ok(status) => {
+                slog::info!(logger, "容器进程状态变化"; "status" => format!("{:?}", status));
+            }
+            Err(e) => {
+                slog::warn!(logger, "等待进程失败"; "error" => format!("{:?}", e));
+            }
+        }
     }
 
     Ok(())
