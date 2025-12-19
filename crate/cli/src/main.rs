@@ -53,7 +53,7 @@ enum ContainerCommands {
     /// 运行容器（创建并启动）
     Run {
         /// 容器 ID
-        #[arg(short, long)]
+        #[arg(long)]
         id: String,
 
         /// 镜像源（支持 file://, dir://, 或本地路径）
@@ -67,6 +67,18 @@ enum ContainerCommands {
         /// 命令参数
         #[arg(short, long)]
         args: Vec<String>,
+
+        /// 分配伪终端（TTY）
+        #[arg(short = 't', long)]
+        tty: bool,
+
+        /// 保持 STDIN 打开（交互模式）
+        #[arg(short = 'i', long)]
+        interactive: bool,
+
+        /// 后台运行（分离模式）
+        #[arg(short = 'd', long)]
+        detach: bool,
     },
 
     /// 启动已创建的容器
@@ -81,6 +93,40 @@ enum ContainerCommands {
         /// 容器 ID
         #[arg(short, long)]
         id: String,
+    },
+
+    /// 列出所有容器
+    List {
+        /// 输出格式 (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+
+        /// 显示所有容器（包括已停止的）
+        #[arg(short, long)]
+        all: bool,
+    },
+
+    /// 在运行中的容器内执行命令
+    Exec {
+        /// 容器 ID
+        #[arg(long)]
+        id: String,
+
+        /// 要执行的命令
+        #[arg(short, long, default_value = "/bin/sh")]
+        command: String,
+
+        /// 命令参数
+        #[arg(short, long)]
+        args: Vec<String>,
+
+        /// 分配伪终端（TTY）
+        #[arg(short = 't', long)]
+        tty: bool,
+
+        /// 保持 STDIN 打开（交互模式）
+        #[arg(short = 'i', long)]
+        interactive: bool,
     },
 }
 

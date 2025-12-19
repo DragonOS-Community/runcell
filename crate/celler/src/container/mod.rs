@@ -69,8 +69,8 @@ use runtime_spec as spec;
 use runtime_spec::{ContainerState, State as OCIState};
 use slog::Logger;
 use tokio::fs::File;
-pub use types::DEFAULT_DEVICES;
 use types::*;
+pub use types::{ContainerStateFile, DEFAULT_DEVICES};
 
 #[cfg(all(not(test), not(feature = "mock-cgroup")))]
 use crate::cgroups::fs::Manager as FsManager;
@@ -598,6 +598,7 @@ impl BaseContainer for LinuxContainer {
     /// 1. 调用 start() 创建容器进程
     /// 2. 如果是 init 进程，调用 exec() 执行容器命令
     /// 3. 将状态转换为 Running
+    /// 4. 保存容器状态到 state.json
     ///
     /// # 参数
     /// - `p`: 进程配置
@@ -608,6 +609,11 @@ impl BaseContainer for LinuxContainer {
         if init {
             self.exec().await?;
             self.status.transition(ContainerState::Running);
+
+            // 保存容器状态到磁盘
+            if let Err(e) = self.save_state() {
+                warn!(self.logger, "failed to save container state: {:?}", e);
+            }
         }
 
         Ok(())
@@ -941,6 +947,82 @@ impl LinuxContainer {
         Ok(())
     }
 
+    /// 保存容器状态到 state.json 文件
+    ///
+    /// 将容器的关键状态信息持久化到磁盘，包括：
+    /// - 容器 ID 和 PID
+    /// - 状态和时间戳
+    /// - Namespace 路径（用于 exec 命令）
+    ///
+    /// # 文件位置
+    /// `{self.root}/state.json`
+    ///
+    /// # 使用时机
+    /// - 容器启动成功后（run/start）
+    /// - 容器状态变化时
+    pub fn save_state(&self) -> Result<()> {
+        let spec = self
+            .config
+            .spec
+            .as_ref()
+            .ok_or_else(|| anyhow!("spec not found"))?;
+
+        let rootfs = spec
+            .root()
+            .as_ref()
+            .map(|r| r.path().display().to_string())
+            .unwrap_or_default();
+
+        let bundle = {
+            let root_path = fs::canonicalize(&rootfs).unwrap_or_else(|_| PathBuf::from(&rootfs));
+            root_path
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| rootfs.clone())
+        };
+
+        let state_file = ContainerStateFile {
+            id: self.id.clone(),
+            init_process_pid: self.init_process_pid,
+            init_process_start_time: self.init_process_start_time,
+            status: format!("{:?}", self.status.status()),
+            bundle,
+            rootfs,
+            created: self
+                .created
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            namespace_paths: self.get_namespace_paths(),
+        };
+
+        let state_path = format!("{}/{}", self.root, ContainerStateFile::STATE_FILENAME);
+        let json = serde_json::to_string_pretty(&state_file).context("serialize state to JSON")?;
+        fs::write(&state_path, json)
+            .with_context(|| format!("write state file: {}", state_path))?;
+
+        info!(self.logger, "container state saved"; "path" => &state_path);
+        Ok(())
+    }
+
+    /// 获取容器的 namespace 路径
+    ///
+    /// 返回 /proc/{pid}/ns/ 下各 namespace 的路径映射。
+    /// 这些路径用于 exec 命令进入容器。
+    fn get_namespace_paths(&self) -> HashMap<String, String> {
+        let mut paths = HashMap::new();
+        if self.init_process_pid > 0 {
+            let ns_types = ["mnt", "pid", "net", "ipc", "uts", "user", "cgroup"];
+            for ns_type in &ns_types {
+                let path = format!("/proc/{}/ns/{}", self.init_process_pid, ns_type);
+                if Path::new(&path).exists() {
+                    paths.insert(ns_type.to_string(), path);
+                }
+            }
+        }
+        paths
+    }
+
     /// Public wrapper for run method
     pub async fn run_container(&mut self, p: Process) -> Result<()> {
         BaseContainer::run(self, p).await
@@ -960,6 +1042,43 @@ impl LinuxContainer {
     pub async fn destroy_container(&mut self) -> Result<()> {
         BaseContainer::destroy(self).await
     }
+}
+
+// ============================================================================
+// 容器状态加载函数
+// ============================================================================
+
+/// 从状态目录加载容器状态
+///
+/// # 参数
+/// - `state_base`: 状态基础目录（如 `/tmp/runcell/states`）
+/// - `container_id`: 容器 ID
+///
+/// # 返回
+/// 成功返回 `ContainerStateFile`，失败返回错误
+///
+/// # 示例
+/// ```rust,no_run
+/// let state = load_container_state("/tmp/runcell/states", "my-container")?;
+/// println!("Container PID: {}", state.init_process_pid);
+/// ```
+pub fn load_container_state(state_base: &str, container_id: &str) -> Result<ContainerStateFile> {
+    let state_path = format!(
+        "{}/{}/{}",
+        state_base,
+        container_id,
+        ContainerStateFile::STATE_FILENAME
+    );
+    let content = fs::read_to_string(&state_path)
+        .with_context(|| format!("read state file: {}", state_path))?;
+    serde_json::from_str(&content).with_context(|| format!("parse state file: {}", state_path))
+}
+
+/// 检查进程是否仍在运行
+///
+/// 通过检查 /proc/{pid} 目录是否存在来判断
+pub fn is_process_running(pid: i32) -> bool {
+    pid > 0 && Path::new(&format!("/proc/{}", pid)).exists()
 }
 
 fn setid(uid: Uid, gid: Gid) -> Result<()> {

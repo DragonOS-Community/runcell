@@ -428,8 +428,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "celler",
+ "chrono",
  "clap",
+ "nix 0.26.4",
  "oci-spec",
+ "serde_json",
  "slog",
  "slog-async",
  "slog-scope",

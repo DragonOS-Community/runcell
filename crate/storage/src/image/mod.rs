@@ -227,11 +227,13 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
             // 如果目标已存在，先删除
             if dest_path.exists() || dest_path.symlink_metadata().is_ok() {
                 if dest_path.is_dir() {
-                    fs::remove_dir_all(&dest_path)
-                        .with_context(|| format!("Failed to remove existing directory: {:?}", dest_path))?;
+                    fs::remove_dir_all(&dest_path).with_context(|| {
+                        format!("Failed to remove existing directory: {:?}", dest_path)
+                    })?;
                 } else {
-                    fs::remove_file(&dest_path)
-                        .with_context(|| format!("Failed to remove existing file: {:?}", dest_path))?;
+                    fs::remove_file(&dest_path).with_context(|| {
+                        format!("Failed to remove existing file: {:?}", dest_path)
+                    })?;
                 }
             }
             std::os::unix::fs::symlink(&link_target, &dest_path)

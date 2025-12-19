@@ -26,6 +26,11 @@ slog-scope.workspace = true
 slog-term.workspace = true
 slog-async = "2"
 
+# 额外依赖
+chrono = "0.4"
+serde_json = "1.0"
+nix.workspace = true
+
 [features]
 default = ["mock-cgroup"]
 seccomp = ["celler/seccomp"]

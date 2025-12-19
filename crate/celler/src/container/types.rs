@@ -207,6 +207,56 @@ pub struct SyncPc {
 }
 
 // ============================================================================
+// 容器状态持久化文件结构
+// ============================================================================
+
+/// 容器状态持久化文件结构
+///
+/// 保存到 state.json 文件中，用于跨进程恢复容器状态信息。
+/// 这对于实现 list、delete、exec 等命令至关重要。
+///
+/// # 使用场景
+/// - `list` 命令：读取所有容器的 state.json 以显示状态
+/// - `delete` 命令：读取 PID 以便在删除前 kill 进程
+/// - `exec` 命令：读取 namespace 路径以进入容器
+///
+/// # 文件位置
+/// `/tmp/runcell/states/{container_id}/state.json`
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ContainerStateFile {
+    /// 容器唯一标识符
+    pub id: String,
+
+    /// Init 进程的 PID（容器主进程）
+    pub init_process_pid: i32,
+
+    /// Init 进程启动时间戳（Unix 时间戳，秒）
+    pub init_process_start_time: u64,
+
+    /// 容器当前状态 ("Created", "Running", "Paused", "Stopped")
+    pub status: String,
+
+    /// Bundle 路径（OCI config.json 所在目录）
+    pub bundle: String,
+
+    /// Rootfs 路径（容器根文件系统）
+    pub rootfs: String,
+
+    /// 容器创建时间（Unix 时间戳，秒）
+    pub created: u64,
+
+    /// Namespace 路径映射（类型 → /proc/{pid}/ns/{type}）
+    /// 用于 exec 命令进入容器
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub namespace_paths: HashMap<String, String>,
+}
+
+impl ContainerStateFile {
+    /// 状态文件名常量
+    pub const STATE_FILENAME: &'static str = "state.json";
+}
+
+// ============================================================================
 // 容器接口 Trait 定义
 // ============================================================================
 
