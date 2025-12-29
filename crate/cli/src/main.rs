@@ -29,7 +29,7 @@ enum Commands {
     Storage(StorageCommands),
 
     /// 容器管理命令
-    #[command(subcommand)]
+    #[command(subcommand, visible_alias = "ctr")]
     Container(ContainerCommands),
 }
 
@@ -53,20 +53,28 @@ enum ContainerCommands {
     /// 运行容器（创建并启动）
     Run {
         /// 容器 ID
-        #[arg(short, long)]
+        #[arg(long)]
         id: String,
 
         /// 镜像源（支持 file://, dir://, 或本地路径）
         #[arg(short = 'm', long)]
         image: String,
 
-        /// 要执行的命令
-        #[arg(short, long, default_value = "/bin/sh")]
-        command: String,
+        /// 分配伪终端（TTY）
+        #[arg(short = 't', long)]
+        tty: bool,
 
-        /// 命令参数
-        #[arg(short, long)]
-        args: Vec<String>,
+        /// 保持 STDIN 打开（交互模式）
+        #[arg(short = 'i', long)]
+        interactive: bool,
+
+        /// 后台运行（分离模式）
+        #[arg(short = 'd', long)]
+        detach: bool,
+
+        /// 要执行的命令及其参数（放在最后）
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
     },
 
     /// 启动已创建的容器
@@ -77,10 +85,42 @@ enum ContainerCommands {
     },
 
     /// 删除容器
+    #[command(visible_alias = "rm")]
     Delete {
         /// 容器 ID
         #[arg(short, long)]
         id: String,
+    },
+
+    /// 列出所有容器
+    #[command(visible_alias = "ls")]
+    List {
+        /// 输出格式 (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+
+        /// 显示所有容器（包括已停止的）
+        #[arg(short, long)]
+        all: bool,
+    },
+
+    /// 在运行中的容器内执行命令
+    Exec {
+        /// 容器 ID
+        #[arg(long)]
+        id: String,
+
+        /// 分配伪终端（TTY）
+        #[arg(short = 't', long)]
+        tty: bool,
+
+        /// 保持 STDIN 打开（交互模式）
+        #[arg(short = 'i', long)]
+        interactive: bool,
+
+        /// 要执行的命令及其参数（放在最后）
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
     },
 }
 
@@ -139,10 +179,19 @@ fn setup_logger(verbose: bool) -> Logger {
     let drain = slog_term::FullFormat::new(decorator).build().fuse();
     let drain = slog_async::Async::new(drain).build().fuse();
 
+    // 优先级：-v/--verbose 标志 > RUNCELL_LOG 环境变量 > 默认 warn
     let level = if verbose {
         slog::Level::Debug
     } else {
-        slog::Level::Info
+        match std::env::var("RUNCELL_LOG").ok().as_deref() {
+            Some("trace") => slog::Level::Trace,
+            Some("debug") => slog::Level::Debug,
+            Some("info") => slog::Level::Info,
+            Some("warn" | "warning") => slog::Level::Warning,
+            Some("error") => slog::Level::Error,
+            Some("critical") => slog::Level::Critical,
+            _ => slog::Level::Warning, // 默认 warn
+        }
     };
 
     Logger::root(
