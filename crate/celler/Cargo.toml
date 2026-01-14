@@ -63,5 +63,6 @@ serial_test.workspace = true
 
 [features]
 seccomp = ["libseccomp"]
+mqueue = []
 standard-oci-runtime = []
 mock-cgroup = []

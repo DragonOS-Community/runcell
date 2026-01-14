@@ -225,6 +225,17 @@ pub fn init_rootfs(
     let mut bind_mount_dev = false;
     let default_mnts = vec![];
     for m in spec.mounts().as_ref().unwrap_or(&default_mnts) {
+        // Skip mqueue mounts if mqueue feature is not enabled
+        #[cfg(not(feature = "mqueue"))]
+        {
+            let default_typ = String::new();
+            let mount_typ = m.typ().as_ref().unwrap_or(&default_typ);
+            if mount_typ == "mqueue" {
+                log_child!(cfd_log, "skip mqueue mount (mqueue feature disabled)");
+                continue;
+            }
+        }
+
         let (mut flags, pgflags, data) = parse_mount(m);
 
         let mount_dest = &m.destination().display().to_string();
@@ -851,6 +862,7 @@ fn mount_from(
                 "proc" | "sysfs" => (),
                 // SELinux does not support mount labeling against /dev/mqueue,
                 // so we use setxattr instead
+                #[cfg(feature = "mqueue")]
                 "mqueue" => {
                     use_xattr = true;
                 }
