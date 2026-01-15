@@ -68,7 +68,12 @@ fn sysctl(oci: &Spec) -> Result<()> {
     let linux_namespaces = linux.namespaces().as_ref().unwrap_or(&default_vec);
     for (key, _) in sysctl_hash.iter() {
         // IPC 相关的 sysctl 需要 IPC 命名空间
-        if SYSCTLS.contains_key(key.as_str()) || key.starts_with("fs.mqueue.") {
+        #[cfg(feature = "mqueue")]
+        let needs_ipc = SYSCTLS.contains_key(key.as_str()) || key.starts_with("fs.mqueue.");
+        #[cfg(not(feature = "mqueue"))]
+        let needs_ipc = SYSCTLS.contains_key(key.as_str());
+
+        if needs_ipc {
             if contain_namespace(linux_namespaces, "ipc") {
                 continue;
             } else {

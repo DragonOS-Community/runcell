@@ -10,7 +10,7 @@ use std::{
 use anyhow::{Context, Result};
 use celler::{
     cgroups::DevicesCgroupInfo,
-    container::{is_process_running, load_container_state, LinuxContainer},
+    container::{LinuxContainer, is_process_running, load_container_state},
     process::Process,
     specconf::CreateOpts,
 };
@@ -52,7 +52,17 @@ pub async fn handle_container_command(cmd: ContainerCommands, logger: &Logger) -
             } else {
                 (command[0].clone(), command[1..].to_vec())
             };
-            run_container(&id, &image, &cmd_str, &args, tty, interactive, detach, logger).await?;
+            run_container(
+                &id,
+                &image,
+                &cmd_str,
+                &args,
+                tty,
+                interactive,
+                detach,
+                logger,
+            )
+            .await?;
         }
         ContainerCommands::Start { id } => {
             start_container(&id, logger).await?;
