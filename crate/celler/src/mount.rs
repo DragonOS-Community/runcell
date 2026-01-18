@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, ErrorKind},
     mem::MaybeUninit,
@@ -374,38 +374,48 @@ fn check_proc_mount(m: &Mount) -> Result<()> {
 }
 
 fn mount_cgroups_v2(cfd_log: RawFd, m: &Mount, rootfs: &str, flags: MsFlags) -> Result<()> {
-    let olddir = unistd::getcwd()?;
-    unistd::chdir(rootfs)?;
-
-    // https://github.com/opencontainers/runc/blob/09ddc63afdde16d5fb859a1d3ab010bd45f08497/libcontainer/rootfs_linux.go#L287
-
-    let mut bm = oci::Mount::default();
-    bm.set_source(Some(PathBuf::from("cgroup")));
-    bm.set_typ(Some("cgroup2".to_string()));
-    bm.set_destination(m.destination().clone());
-
-    let mount_flags: MsFlags = flags;
-
-    mount_from(cfd_log, &bm, rootfs, mount_flags, "", "")?;
-
-    unistd::chdir(&olddir)?;
-
-    if flags.contains(MsFlags::MS_RDONLY) {
-        let dest = format!(
-            "{}{}",
-            rootfs,
-            m.destination().display().to_string().as_str()
-        );
-        mount(
-            Some(dest.as_str()),
-            dest.as_str(),
-            None::<&str>,
-            flags | MsFlags::MS_BIND | MsFlags::MS_REMOUNT,
-            None::<&str>,
-        )?;
+    #[cfg(feature = "mock-cgroup")]
+    {
+        // For mock-cgroup, skip all cgroup mount operations
+        log_child!(cfd_log, "skip cgroup v2 mount (mock-cgroup feature enabled)");
+        return Ok(());
     }
 
-    Ok(())
+    #[cfg(not(feature = "mock-cgroup"))]
+    {
+        let olddir = unistd::getcwd()?;
+        unistd::chdir(rootfs)?;
+
+        // https://github.com/opencontainers/runc/blob/09ddc63afdde16d5fb859a1d3ab010bd45f08497/libcontainer/rootfs_linux.go#L287
+
+        let mut bm = oci::Mount::default();
+        bm.set_source(Some(PathBuf::from("cgroup")));
+        bm.set_typ(Some("cgroup2".to_string()));
+        bm.set_destination(m.destination().clone());
+
+        let mount_flags: MsFlags = flags;
+
+        mount_from(cfd_log, &bm, rootfs, mount_flags, "", "")?;
+
+        unistd::chdir(&olddir)?;
+
+        if flags.contains(MsFlags::MS_RDONLY) {
+            let dest = format!(
+                "{}{}",
+                rootfs,
+                m.destination().display().to_string().as_str()
+            );
+            mount(
+                Some(dest.as_str()),
+                dest.as_str(),
+                None::<&str>,
+                flags | MsFlags::MS_BIND | MsFlags::MS_REMOUNT,
+                None::<&str>,
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 fn is_none_mount_type(typ: &Option<String>) -> bool {
@@ -421,98 +431,119 @@ fn mount_cgroups(
     rootfs: &str,
     flags: MsFlags,
     _data: &str,
-    cpath: &HashMap<String, String>,
-    mounts: &HashMap<String, String>,
+    _cpath: &HashMap<String, String>,
+    _mounts: &HashMap<String, String>,
 ) -> Result<()> {
-    if cgroups::hierarchies::is_cgroup2_unified_mode() {
+    #[cfg(feature = "mock-cgroup")]
+    {
+        // For mock-cgroup, always use v2 (no /sys/fs/cgroup access needed)
         return mount_cgroups_v2(cfd_log, m, rootfs, flags);
     }
+    #[cfg(not(feature = "mock-cgroup"))]
+    {
+        if cgroups::hierarchies::is_cgroup2_unified_mode() {
+            return mount_cgroups_v2(cfd_log, m, rootfs, flags);
+        }
+    }
 
-    let mount_dest = m.destination().display().to_string();
-    // mount tmpfs
-    let mut ctm = oci::Mount::default();
-    ctm.set_source(Some(PathBuf::from("tmpfs")));
-    ctm.set_typ(Some("tmpfs".to_string()));
-    ctm.set_destination(m.destination().clone());
+    #[cfg(not(feature = "mock-cgroup"))]
+    {
+        use std::collections::HashSet;
 
-    let cflags = MsFlags::MS_NOEXEC | MsFlags::MS_NOSUID | MsFlags::MS_NODEV;
-    mount_from(cfd_log, &ctm, rootfs, cflags, "", "")?;
-    let olddir = unistd::getcwd()?;
+        let mount_dest = m.destination().display().to_string();
+        // mount tmpfs
+        let mut ctm = oci::Mount::default();
+        ctm.set_source(Some(PathBuf::from("tmpfs")));
+        ctm.set_typ(Some("tmpfs".to_string()));
+        ctm.set_destination(m.destination().clone());
 
-    unistd::chdir(rootfs)?;
+        let cflags = MsFlags::MS_NOEXEC | MsFlags::MS_NOSUID | MsFlags::MS_NODEV;
+        mount_from(cfd_log, &ctm, rootfs, cflags, "", "")?;
+        let olddir = unistd::getcwd()?;
 
-    let mut srcs: HashSet<String> = HashSet::new();
+        unistd::chdir(rootfs)?;
 
-    // bind mount cgroups
-    for (key, mount) in mounts.iter() {
-        log_child!(cfd_log, "mount cgroup subsystem {}", key);
-        let source = if cpath.get(key).is_some() {
-            cpath.get(key).unwrap()
-        } else {
-            continue;
-        };
+        let mut srcs: HashSet<String> = HashSet::new();
 
-        let base = if let Some(o) = mount.rfind('/') {
-            &mount[o + 1..]
-        } else {
-            &mount[..]
-        };
+        // bind mount cgroups
+        for (key, mount) in _mounts.iter() {
+            log_child!(cfd_log, "mount cgroup subsystem {}", key);
+            let source = if _cpath.get(key).is_some() {
+                _cpath.get(key).unwrap()
+            } else {
+                continue;
+            };
 
-        let destination = format!("{}/{}", &mount_dest, base);
+            let base = if let Some(o) = mount.rfind('/') {
+                &mount[o + 1..]
+            } else {
+                &mount[..]
+            };
 
-        if srcs.contains(source) {
-            // already mounted, xxx,yyy style cgroup
-            if key != base {
-                let src = format!("{}/{}", &mount_dest, key);
-                unix::fs::symlink(destination.as_str(), &src[1..])?;
+            let destination = format!("{}/{}", &mount_dest, base);
+
+            if srcs.contains(source) {
+                // already mounted, xxx,yyy style cgroup
+                if key != base {
+                    let src = format!("{}/{}", &mount_dest, key);
+                    unix::fs::symlink(destination.as_str(), &src[1..])?;
+                }
+
+                continue;
             }
 
-            continue;
+            srcs.insert(source.to_string());
+
+            log_child!(cfd_log, "mount destination: {}", destination.as_str());
+
+            let mut bm = oci::Mount::default();
+            bm.set_source(Some(PathBuf::from(source)));
+            bm.set_typ(Some("bind".to_string()));
+            bm.set_destination(PathBuf::from(destination.clone()));
+
+            let mut mount_flags: MsFlags = flags | MsFlags::MS_REC | MsFlags::MS_BIND;
+            if key.contains("systemd") {
+                mount_flags &= !MsFlags::MS_RDONLY;
+            }
+            mount_from(cfd_log, &bm, rootfs, mount_flags, "", "")?;
+
+            if key != base {
+                let src = format!("{}/{}", &mount_dest, key);
+                unix::fs::symlink(destination.as_str(), &src[1..]).inspect_err(|e| {
+                    log_child!(
+                        cfd_log,
+                        "symlink: {} {} err: {}",
+                        key,
+                        destination.as_str(),
+                        e.to_string()
+                    )
+                })?;
+            }
         }
 
-        srcs.insert(source.to_string());
+        unistd::chdir(&olddir)?;
 
-        log_child!(cfd_log, "mount destination: {}", destination.as_str());
-
-        let mut bm = oci::Mount::default();
-        bm.set_source(Some(PathBuf::from(source)));
-        bm.set_typ(Some("bind".to_string()));
-        bm.set_destination(PathBuf::from(destination.clone()));
-
-        let mut mount_flags: MsFlags = flags | MsFlags::MS_REC | MsFlags::MS_BIND;
-        if key.contains("systemd") {
-            mount_flags &= !MsFlags::MS_RDONLY;
+        if flags.contains(MsFlags::MS_RDONLY) {
+            let dest = format!("{}{}", rootfs, &mount_dest);
+            mount(
+                Some(dest.as_str()),
+                dest.as_str(),
+                None::<&str>,
+                flags | MsFlags::MS_BIND | MsFlags::MS_REMOUNT,
+                None::<&str>,
+            )?;
         }
-        mount_from(cfd_log, &bm, rootfs, mount_flags, "", "")?;
 
-        if key != base {
-            let src = format!("{}/{}", &mount_dest, key);
-            unix::fs::symlink(destination.as_str(), &src[1..]).inspect_err(|e| {
-                log_child!(
-                    cfd_log,
-                    "symlink: {} {} err: {}",
-                    key,
-                    destination.as_str(),
-                    e.to_string()
-                )
-            })?;
-        }
+        Ok(())
     }
 
-    unistd::chdir(&olddir)?;
-
-    if flags.contains(MsFlags::MS_RDONLY) {
-        let dest = format!("{}{}", rootfs, &mount_dest);
-        mount(
-            Some(dest.as_str()),
-            dest.as_str(),
-            None::<&str>,
-            flags | MsFlags::MS_BIND | MsFlags::MS_REMOUNT,
-            None::<&str>,
-        )?;
+    #[cfg(feature = "mock-cgroup")]
+    {
+        // This branch is never reached due to early return above,
+        // but we need it for type checking
+        #[allow(unreachable_code)]
+        Ok(())
     }
-
-    Ok(())
 }
 
 #[cfg(not(test))]
@@ -839,8 +870,18 @@ fn mount_from(
         }
     };
 
-    let _ = stat::stat(dest.as_str())
-        .inspect_err(|e| log_child!(cfd_log, "dest stat error. {}: {:?}", dest.as_str(), e))?;
+    // Skip stat for cgroup mounts in mock-cgroup mode to avoid accessing
+    // unsupported paths on systems without /sys/fs/cgroup support
+    let is_cgroup_mount = mount_typ == "cgroup" || mount_typ == "cgroup2";
+    #[cfg(feature = "mock-cgroup")]
+    let skip_stat = is_cgroup_mount;
+    #[cfg(not(feature = "mock-cgroup"))]
+    let skip_stat = false;
+
+    if !skip_stat {
+        let _ = stat::stat(dest.as_str())
+            .inspect_err(|e| log_child!(cfd_log, "dest stat error. {}: {:?}", dest.as_str(), e))?;
+    }
 
     // Set the SELinux context for the mounts
     let mut use_xattr = false;
